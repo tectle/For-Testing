@@ -45,7 +45,7 @@
     </script>
 
     <script type="text/babel" data-presets="env,react">
-      const { useMemo, useState, useEffect, useCallback, useRef } = React;
+      const { useMemo, useState, useEffect, useCallback, useRef, useLayoutEffect } = React;
 
       // ---------- Utilities (LOCAL TIME) ----------
       const LS_KEY = "teamPlanner:nameKeyed:v6";
@@ -587,8 +587,28 @@
       function EventShareMenu({ event, buildShareLink, buttonClassName='' }){
         const [open, setOpen] = useState(false);
         const containerRef = useRef(null);
+        const menuRef = useRef(null);
+        const [menuStyle, setMenuStyle] = useState({ position: 'fixed', top: 0, left: 0, visibility: 'hidden' });
         const shareLink = useMemo(() => buildShareLink(event.id), [event.id, buildShareLink]);
-        const shareText = `${event.title || 'Event'} – ${shareLink}`;
+
+        const eventTz = event.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+        const safeStartDate = event.startDate || event.endDate || new Date().toISOString().slice(0, 10);
+        const safeEndDate = event.endDate || safeStartDate;
+        const startDayMs = localStartOfDayMs(safeStartDate);
+        const endDayMs = localStartOfDayMs(safeEndDate);
+        const startMs = startDayMs + (event.startHour ?? 8) * 60 * 60 * 1000;
+        const endMs = endDayMs + (event.endHour ?? 23) * 60 * 60 * 1000;
+        const sameDay = safeStartDate === safeEndDate;
+        const dateLabel = sameDay
+          ? fmtDate(startDayMs, eventTz)
+          : `${fmtDate(startDayMs, eventTz)} → ${fmtDate(endDayMs, eventTz)}`;
+        const timeLabel = `${fmtTime(startMs, eventTz)} – ${fmtTime(endMs, eventTz)}`;
+        const shareMessage = [
+          event.title || 'Event',
+          dateLabel,
+          `${timeLabel} (${eventTz})`,
+          shareLink,
+        ].join('\n');
 
         useEffect(()=>{
           if (!open) return;
@@ -602,22 +622,54 @@
           return () => document.removeEventListener('click', handleClick);
         }, [open]);
 
+        useLayoutEffect(()=>{
+          if (!open) {
+            setMenuStyle({ position: 'fixed', top: 0, left: 0, visibility: 'hidden' });
+            return;
+          }
+          function updatePosition(){
+            const trigger = containerRef.current;
+            const menuEl = menuRef.current;
+            if (!trigger || !menuEl) return;
+            const rect = trigger.getBoundingClientRect();
+            const menuRect = menuEl.getBoundingClientRect();
+            const padding = 12;
+            let left = rect.right - menuRect.width;
+            if (left < padding) left = padding;
+            if (left + menuRect.width > window.innerWidth - padding) {
+              left = Math.max(padding, window.innerWidth - padding - menuRect.width);
+            }
+            let top = rect.bottom + 8;
+            if (top + menuRect.height > window.innerHeight - padding) {
+              top = Math.max(padding, rect.top - 8 - menuRect.height);
+            }
+            setMenuStyle({ position: 'fixed', top, left, width: menuRect.width, zIndex: 50, visibility: 'visible' });
+          }
+          updatePosition();
+          window.addEventListener('resize', updatePosition);
+          window.addEventListener('scroll', updatePosition, true);
+          return () => {
+            window.removeEventListener('resize', updatePosition);
+            window.removeEventListener('scroll', updatePosition, true);
+          };
+        }, [open]);
+
         async function handleCopy(){
           try {
             if (navigator?.clipboard?.writeText) {
-              await navigator.clipboard.writeText(shareLink);
+              await navigator.clipboard.writeText(shareMessage);
             } else {
               throw new Error('clipboard unavailable');
             }
-            alert('Event link copied to clipboard!');
+            alert('Event details copied to clipboard!');
           } catch (err) {
-            window.prompt('Copy this link', shareLink);
+            window.prompt('Copy this message', shareMessage);
           }
           setOpen(false);
         }
 
-        const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(shareText)}`;
-        const instagramUrl = `https://www.instagram.com/direct/new/?text=${encodeURIComponent(shareText)}`;
+        const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(shareMessage)}`;
+        const instagramUrl = `https://www.instagram.com/direct/new/?text=${encodeURIComponent(shareMessage)}`;
 
         return (
           <div ref={containerRef} className="relative" data-share-menu>
@@ -634,8 +686,12 @@
               </svg>
             </button>
             {open && (
-              <div className="absolute right-0 mt-2 w-48 bg-white border rounded-lg shadow-lg text-sm z-20">
-                <button type="button" onClick={handleCopy} className="block w-full text-left px-3 py-2 hover:bg-gray-50">Copy link</button>
+              <div
+                ref={menuRef}
+                style={menuStyle}
+                className="w-56 bg-white border rounded-lg shadow-lg text-sm"
+              >
+                <button type="button" onClick={handleCopy} className="block w-full text-left px-3 py-2 hover:bg-gray-50">Copy message</button>
                 <a href={whatsappUrl} target="_blank" rel="noopener noreferrer" onClick={()=>setOpen(false)} className="block px-3 py-2 hover:bg-gray-50">Share on WhatsApp</a>
                 <a href={instagramUrl} target="_blank" rel="noopener noreferrer" onClick={()=>setOpen(false)} className="block px-3 py-2 hover:bg-gray-50">Share on Instagram</a>
               </div>
