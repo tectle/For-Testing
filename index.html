@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Plan Picker — Minimal</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    html,body{background:#fff}
+    .tap{padding:10px 12px;font-size:14px}
+    .menu{position:absolute;right:0;top:100%;margin-top:.25rem}
+  </style>
+</head>
+<body class="p-4 sm:p-6 max-w-3xl mx-auto">
+  <header class="flex items-center justify-between mb-4">
+    <h1 class="text-2xl font-semibold">🗓️ Plan Picker (Minimal)</h1>
+    <span class="text-sm text-gray-500">Local-only · No Firebase</span>
+  </header>
+
+  <section class="bg-white rounded-2xl shadow p-4 mb-6">
+    <h2 class="text-lg font-semibold mb-3">Create a new event</h2>
+    <form id="form" class="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end w-full">
+      <label class="flex flex-col gap-1 sm:col-span-6">
+        <span class="text-sm text-gray-700">Event name</span>
+        <input id="title" class="tap border rounded-md px-2 py-1 text-sm w-full" placeholder="Brunch / Study session" required>
+      </label>
+      <label class="flex flex-col gap-1 sm:col-span-6">
+        <span class="text-sm text-gray-700">Description (optional)</span>
+        <input id="desc" class="tap border rounded-md px-2 py-1 text-sm w-full" placeholder="Short note: location, vibe...">
+      </label>
+      <label class="flex flex-col gap-1 sm:col-span-4">
+        <span class="text-sm text-gray-700">Start date</span>
+        <input id="startDate" type="date" class="tap border rounded-md px-2 py-1 text-sm w-full" required>
+      </label>
+      <label class="flex flex-col gap-1 sm:col-span-4">
+        <span class="text-sm text-gray-700">End date</span>
+        <input id="endDate" type="date" class="tap border rounded-md px-2 py-1 text-sm w-full" required>
+      </label>
+      <label class="flex flex-col gap-1 sm:col-span-2">
+        <span class="text-sm text-gray-700">Start time</span>
+        <select id="startHour" class="tap border rounded-md px-2 py-1 text-sm w-full"></select>
+      </label>
+      <label class="flex flex-col gap-1 sm:col-span-2">
+        <span class="text-sm text-gray-700">End time</span>
+        <select id="endHour" class="tap border rounded-md px-2 py-1 text-sm w-full"></select>
+      </label>
+      <label class="flex flex-col gap-1 sm:col-span-4">
+        <span class="text-sm text-gray-700">Type</span>
+        <select id="etype" class="tap border rounded-md px-2 py-1 text-sm w-full">
+          <option value="poll">Find a time</option>
+          <option value="fixed">Fixed</option>
+        </select>
+      </label>
+      <div class="sm:col-span-12">
+        <button class="tap text-sm px-3 py-2 rounded-lg border bg-emerald-50 hover:bg-emerald-100">Create event</button>
+      </div>
+    </form>
+  </section>
+
+  <section class="bg-white rounded-2xl shadow p-4">
+    <h2 class="text-lg font-semibold mb-3">Your events</h2>
+    <ul id="list" class="divide-y"></ul>
+    <div id="empty" class="text-sm text-gray-600">No events yet.</div>
+  </section>
+
+  <script>
+    const $ = (s, r=document)=> r.querySelector(s);
+    const $$ = (s, r=document)=> [...r.querySelectorAll(s)];
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    const SKEY = "minimal-plan-picker-events-v1";
+
+    function pad(n){ return String(n).padStart(2,'0'); }
+    function labelHour(h){ const ampm=h<12?'am':'pm'; const hr=((h+11)%12)+1; return hr+ampm; }
+    function fmtDate(ms){ return new Date(ms).toLocaleDateString(undefined,{timeZone:tz,weekday:'short',month:'short',day:'numeric'}); }
+    function fmtTime(ms){ return new Date(ms).toLocaleTimeString(undefined,{timeZone:tz,hour:'numeric',minute:'2-digit'}); }
+    function sodMs(ymd){ const [y,m,d]=ymd.split('-').map(Number); return new Date(y,m-1,d,0,0,0,0).getTime(); }
+
+    function load(){ try{ return JSON.parse(localStorage.getItem(SKEY))||[] }catch{ return [] } }
+    function save(v){ localStorage.setItem(SKEY, JSON.stringify(v)); }
+
+    function hourOptions(sel, def){
+      sel.innerHTML = "";
+      for(let h=0; h<24; h++){
+        const opt = document.createElement("option");
+        opt.value=h; opt.textContent=labelHour(h);
+        if(h===def) opt.selected=true;
+        sel.appendChild(opt);
+      }
+    }
+
+    function buildShareText(ev){
+      const base = [
+        "📅 "+ev.title,
+        ev.desc ? ev.desc : null,
+        `${fmtDate(sodMs(ev.startDate))} → ${fmtDate(sodMs(ev.endDate))} · ${labelHour(+ev.startHour)}–${labelHour(+ev.endHour)}`,
+        ev.etype==='poll' ? "Type: Find a time" : "Type: Fixed",
+      ].filter(Boolean).join("\n");
+      return base;
+    }
+
+    function sortEvents(arr){
+      const now = Date.now();
+      function startMs(e){ return sodMs(e.startDate) + (+e.startHour)*3600*1000; }
+      return [...arr].sort((a,b)=>{
+        const am = startMs(a), bm = startMs(b);
+        const af = am >= now, bf = bm >= now;
+        if(af!==bf) return af? -1 : 1; // future first
+        if(af) return am - bm;         // both future → earliest first
+        return bm - am;                // both past   → most recent first
+      });
+    }
+
+    function render(){
+      const events = sortEvents(load());
+      const list = $("#list"); list.innerHTML="";
+      $("#empty").style.display = events.length? "none":"block";
+
+      events.forEach(ev=>{
+        const li = document.createElement("li");
+        li.className="py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2";
+
+        const left = document.createElement("div");
+        left.className="text-sm";
+        left.innerHTML = \`
+          <div class="font-medium flex items-center gap-2 flex-wrap">
+            <span>\${ev.title}</span>
+            <span class="text-[10px] px-1.5 py-0.5 rounded border \${ev.etype==='poll'?'bg-blue-50 border-blue-300 text-blue-700':'bg-purple-50 border-purple-300 text-purple-700'}">
+              \${ev.etype==='poll'?'Find a time':'Fixed'}
+            </span>
+          </div>
+          \${ev.desc ? '<div class="text-[12px] text-gray-600 mt-0.5">'+ev.desc+'</div>': ''}
+          <div class="text-gray-500">\${fmtDate(sodMs(ev.startDate))} → \${fmtDate(sodMs(ev.endDate))} · \${labelHour(+ev.startHour)}–\${labelHour(+ev.endHour)}</div>
+        \`;
+
+        const right = document.createElement("div");
+        right.className="flex items-center gap-2 relative";
+
+        const btnSel = document.createElement("button");
+        btnSel.className="tap text-sm px-3 py-1.5 rounded-lg border bg-gray-50 hover:bg-gray-100";
+        btnSel.textContent="Select";
+        btnSel.onclick = ()=> alert("Detail view is omitted in the minimal build.");
+
+        const btnDel = document.createElement("button");
+        btnDel.className="tap text-sm px-3 py-1.5 rounded-lg border bg-red-50 text-red-700 hover:bg-red-100";
+        btnDel.textContent="Delete";
+        btnDel.onclick = ()=>{
+          const arr = load().filter(x=>x.id!==ev.id);
+          save(arr); render();
+        };
+
+        const wrap = document.createElement("div");
+        wrap.className="inline-block relative";
+        const bell = document.createElement("button");
+        bell.className="tap px-2 py-1 rounded-lg border bg-amber-50 hover:bg-amber-100 flex items-center gap-1";
+        bell.title="Share / notify";
+        bell.innerHTML = \`
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-4 h-4">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M14.5 18.5a2.5 2.5 0 1 1-5 0M5 9a7 7 0 1 1 14 0c0 3.148 1.167 4.167 1.75 5 .321.45-.013 1.083-.563 1.083H3.813c-.55 0-.884-.633-.563-1.083C3.833 13.167 5 12.148 5 9z"/>
+          </svg>
+          <span class="text-xs">Notify</span>\`;
+
+        const menu = document.createElement("div");
+        menu.className="menu hidden w-48 bg-white border shadow rounded-xl p-2 text-sm z-10";
+        menu.innerHTML = \`
+          <button class="w-full text-left px-2 py-1 rounded hover:bg-gray-50" data-act="copy">Copy details</button>
+          <button class="w-full text-left px-2 py-1 rounded hover:bg-gray-50" data-act="wa">Share on WhatsApp</button>
+          <button class="w-full text-left px-2 py-1 rounded hover:bg-gray-50" data-act="ig">Share on Instagram</button>
+        \`;
+
+        bell.onclick = ()=>{
+          // close other open menus
+          $$(".menu").forEach(m=> m!==menu && (m.classList.add("hidden")));
+          menu.classList.toggle("hidden");
+        };
+        menu.onclick = async (e)=>{
+          const act = e.target.dataset.act;
+          const txt = buildShareText(ev);
+          if(act==="copy"){
+            try{ await navigator.clipboard.writeText(txt); alert("Details copied to clipboard."); }catch{ alert("Copy failed."); }
+          }else if(act==="wa"){
+            window.open("https://wa.me/?text="+encodeURIComponent(txt), "_blank");
+          }else if(act==="ig"){
+            if(navigator.share){
+              try{ await navigator.share({ title: ev.title, text: txt }); }catch{}
+            }else{
+              try{ await navigator.clipboard.writeText(txt); alert("Copied! Paste into Instagram."); }catch{ alert("Open Instagram and paste the details."); }
+            }
+          }
+          menu.classList.add("hidden");
+        };
+        document.addEventListener("click", (e)=>{
+          if(!wrap.contains(e.target)) menu.classList.add("hidden");
+        });
+
+        wrap.appendChild(bell);
+        wrap.appendChild(menu);
+
+        right.appendChild(btnSel);
+        right.appendChild(btnDel);
+        right.appendChild(wrap);
+
+        li.appendChild(left);
+        li.appendChild(right);
+        list.appendChild(li);
+      });
+    }
+
+    function initFormDefaults(){
+      const now = new Date();
+      const nextSat = new Date(now);
+      nextSat.setDate(now.getDate() + ((6 - now.getDay() + 7) % 7 || 7));
+      const nextSun = new Date(nextSat); nextSun.setDate(nextSat.getDate()+1);
+      const ymd = d => d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());
+      $("#startDate").value = ymd(nextSat);
+      $("#endDate").value = ymd(nextSun);
+      hourOptions($("#startHour"), 8);
+      hourOptions($("#endHour"), 23);
+    }
+
+    $("#form").addEventListener("submit", (e)=>{
+      e.preventDefault();
+      const title = $("#title").value.trim();
+      const desc = $("#desc").value.trim();
+      const startDate = $("#startDate").value;
+      const endDate = $("#endDate").value;
+      const startHour = +$("#startHour").value;
+      const endHour = +$("#endHour").value;
+      const etype = $("#etype").value;
+
+      if(!title) return;
+      if(new Date(startDate) > new Date(endDate)){ alert("Start date must be before end date."); return; }
+      if(etype==="fixed" && endHour <= startHour && startDate===endDate){ alert("End time must be after start time for fixed events."); return; }
+
+      const ev = { id: Math.random().toString(36).slice(2), title, desc, startDate, endDate, startHour, endHour, etype, createdAt: new Date().toISOString() };
+      const arr = load(); arr.push(ev); save(arr);
+      e.target.reset(); initFormDefaults(); render();
+    });
+
+    initFormDefaults();
+    render();
+  </script>
+</body>
+</html>
