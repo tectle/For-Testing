@@ -653,19 +653,19 @@
         async function handleCopy(){
           try {
             if (navigator?.clipboard?.writeText) {
-              await navigator.clipboard.writeText(shareLink);
+              await navigator.clipboard.writeText(shareMessage);
             } else {
               throw new Error('clipboard unavailable');
             }
-            alert('Event link copied to clipboard!');
+            alert('Event details copied to clipboard!');
           } catch (err) {
-            window.prompt('Copy this link', shareLink);
+            window.prompt('Copy this message', shareMessage);
           }
           setOpen(false);
         }
 
-        const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(shareText)}`;
-        const instagramUrl = `https://www.instagram.com/direct/new/?text=${encodeURIComponent(shareText)}`;
+        const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(shareMessage)}`;
+        const instagramUrl = `https://www.instagram.com/direct/new/?text=${encodeURIComponent(shareMessage)}`;
 
         return (
           <div ref={containerRef} className="relative" data-share-menu>
