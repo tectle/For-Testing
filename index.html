@@ -588,7 +588,7 @@
         const [open, setOpen] = useState(false);
         const containerRef = useRef(null);
         const menuRef = useRef(null);
-        const [menuStyle, setMenuStyle] = useState({ position: 'fixed', top: 0, left: 0, visibility: 'hidden' });
+        const [menuStyle, setMenuStyle] = useState({});
         const shareLink = useMemo(() => buildShareLink(event.id), [event.id, buildShareLink]);
 
         const eventTz = event.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
@@ -603,12 +603,8 @@
           ? fmtDate(startDayMs, eventTz)
           : `${fmtDate(startDayMs, eventTz)} → ${fmtDate(endDayMs, eventTz)}`;
         const timeLabel = `${fmtTime(startMs, eventTz)} – ${fmtTime(endMs, eventTz)}`;
-        const shareMessage = [
-          event.title || 'Event',
-          dateLabel,
-          `${timeLabel} (${eventTz})`,
-          shareLink,
-        ].join('\n');
+        const modeLabel = event.mode === 'fixed' ? 'Fixed time event' : 'Find a time poll';
+        const shareText = `${event.title || 'Event'} · ${dateLabel} · ${timeLabel} (${eventTz}) · ${modeLabel} — ${shareLink}`;
 
         useEffect(()=>{
           if (!open) return;
@@ -624,7 +620,7 @@
 
         useLayoutEffect(()=>{
           if (!open) {
-            setMenuStyle({ position: 'fixed', top: 0, left: 0, visibility: 'hidden' });
+            setMenuStyle({});
             return;
           }
           function updatePosition(){
@@ -643,7 +639,7 @@
             if (top + menuRect.height > window.innerHeight - padding) {
               top = Math.max(padding, rect.top - 8 - menuRect.height);
             }
-            setMenuStyle({ position: 'fixed', top, left, width: menuRect.width, zIndex: 50, visibility: 'visible' });
+            setMenuStyle({ position: 'fixed', top, left, width: menuRect.width, zIndex: 50 });
           }
           updatePosition();
           window.addEventListener('resize', updatePosition);
@@ -689,9 +685,25 @@
               <div
                 ref={menuRef}
                 style={menuStyle}
-                className="w-56 bg-white border rounded-lg shadow-lg text-sm"
+                className="mt-2 w-56 bg-white border rounded-lg shadow-lg text-sm"
               >
-                <button type="button" onClick={handleCopy} className="block w-full text-left px-3 py-2 hover:bg-gray-50">Copy message</button>
+                <div className="px-3 py-2 border-b text-xs text-gray-600 space-y-0.5">
+                  <div className="text-sm font-semibold text-gray-900 truncate">{event.title || 'Untitled event'}</div>
+                  <div>{dateLabel}</div>
+                  <div>{timeLabel}</div>
+                  <div className="capitalize">{modeLabel}</div>
+                  <div>Timezone: {eventTz}</div>
+                </div>
+                <a
+                  href={shareLink}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={()=>setOpen(false)}
+                  className="block px-3 py-2 text-left hover:bg-gray-50"
+                >
+                  Open event page
+                </a>
+                <button type="button" onClick={handleCopy} className="block w-full text-left px-3 py-2 hover:bg-gray-50">Copy link</button>
                 <a href={whatsappUrl} target="_blank" rel="noopener noreferrer" onClick={()=>setOpen(false)} className="block px-3 py-2 hover:bg-gray-50">Share on WhatsApp</a>
                 <a href={instagramUrl} target="_blank" rel="noopener noreferrer" onClick={()=>setOpen(false)} className="block px-3 py-2 hover:bg-gray-50">Share on Instagram</a>
               </div>
