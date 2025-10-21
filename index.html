@@ -45,7 +45,7 @@
     </script>
 
     <script type="text/babel" data-presets="env,react">
-      const { useMemo, useState, useEffect } = React;
+      const { useMemo, useState, useEffect, useCallback, useRef } = React;
 
       // ---------- Utilities (LOCAL TIME) ----------
       const LS_KEY = "teamPlanner:nameKeyed:v6";
@@ -239,6 +239,36 @@
           });
           return unsub;
         },[db])
+
+        useEffect(()=>{
+          if (typeof window === 'undefined') return;
+          const params = new URLSearchParams(window.location.search);
+          const eventParam = params.get('event');
+          if (eventParam && events.some(ev => ev.id === eventParam)) {
+            setSelectedId(eventParam);
+          }
+        }, [events]);
+
+        useEffect(()=>{
+          if (typeof window === 'undefined') return;
+          const params = new URLSearchParams(window.location.search);
+          if (selectedId) {
+            params.set('event', selectedId);
+          } else {
+            params.delete('event');
+          }
+          const newQuery = params.toString();
+          const newUrl = `${window.location.pathname}${newQuery ? `?${newQuery}` : ''}${window.location.hash}`;
+          window.history.replaceState(null, '', newUrl);
+        }, [selectedId]);
+
+        const buildShareLink = useCallback((eventId) => {
+          if (typeof window === 'undefined') return '';
+          const url = new URL(window.location.href);
+          url.searchParams.set('event', eventId);
+          url.searchParams.delete('name');
+          return url.toString();
+        }, []);
         useEffect(()=>{
           if (editTarget){
             setTitle(editTarget.title || '');
@@ -529,6 +559,7 @@
                 setMode={setMode}
                 onCreate={createEvent}
                 summaryForEvent={summaryForEvent}
+                buildShareLink={buildShareLink}
                 canAct={canAct} onStartEdit={setEditTarget}
               />
             ) : (
@@ -544,10 +575,71 @@
                 namesBySlot={namesBySlotSelected}
                 canAct={canAct}
                 onBack={()=>setSelectedId(null)}
+                buildShareLink={buildShareLink}
               />
             )}
 
             <HoverCard visible={hoverState.visible} anchorRect={hoverState.rect} names={hoverState.names} />
+          </div>
+        );
+      }
+
+      function EventShareMenu({ event, buildShareLink, buttonClassName='' }){
+        const [open, setOpen] = useState(false);
+        const containerRef = useRef(null);
+        const shareLink = useMemo(() => buildShareLink(event.id), [event.id, buildShareLink]);
+        const shareText = `${event.title || 'Event'} – ${shareLink}`;
+
+        useEffect(()=>{
+          if (!open) return;
+          function handleClick(e){
+            const el = containerRef.current;
+            if (el && !el.contains(e.target)) {
+              setOpen(false);
+            }
+          }
+          document.addEventListener('click', handleClick);
+          return () => document.removeEventListener('click', handleClick);
+        }, [open]);
+
+        async function handleCopy(){
+          try {
+            if (navigator?.clipboard?.writeText) {
+              await navigator.clipboard.writeText(shareLink);
+            } else {
+              throw new Error('clipboard unavailable');
+            }
+            alert('Event link copied to clipboard!');
+          } catch (err) {
+            window.prompt('Copy this link', shareLink);
+          }
+          setOpen(false);
+        }
+
+        const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(shareText)}`;
+        const instagramUrl = `https://www.instagram.com/direct/new/?text=${encodeURIComponent(shareText)}`;
+
+        return (
+          <div ref={containerRef} className="relative" data-share-menu>
+            <button
+              type="button"
+              className={`tap px-2 py-1.5 rounded-lg border text-gray-700 hover:bg-gray-100 ${buttonClassName}`}
+              onClick={(e)=>{ e.stopPropagation(); setOpen(p=>!p); }}
+              aria-haspopup="menu"
+              aria-expanded={open}
+            >
+              <span className="sr-only">Share {event.title || 'event'}</span>
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M14.25 18.75a2.25 2.25 0 01-4.5 0m9-4.5v-2.25a6.75 6.75 0 10-13.5 0v2.25l-1.5 1.5h16.5l-1.5-1.5z" />
+              </svg>
+            </button>
+            {open && (
+              <div className="absolute right-0 mt-2 w-48 bg-white border rounded-lg shadow-lg text-sm z-20">
+                <button type="button" onClick={handleCopy} className="block w-full text-left px-3 py-2 hover:bg-gray-50">Copy link</button>
+                <a href={whatsappUrl} target="_blank" rel="noopener noreferrer" onClick={()=>setOpen(false)} className="block px-3 py-2 hover:bg-gray-50">Share on WhatsApp</a>
+                <a href={instagramUrl} target="_blank" rel="noopener noreferrer" onClick={()=>setOpen(false)} className="block px-3 py-2 hover:bg-gray-50">Share on Instagram</a>
+              </div>
+            )}
           </div>
         );
       }
@@ -557,6 +649,7 @@
           tz, events, onSelect, onDelete, title, description, startDate, endDate,
           startHour, endHour, setTitle, setDescription, setStartDate, setEndDate,
           setStartHour, setEndHour, mode, setMode, onCreate, summaryForEvent,
+          buildShareLink,
           canAct, onStartEdit } = props;
 
         function Pill({children}){ return <span className="px-2 py-1 rounded-full text-xs border">{children}</span>; }
@@ -609,8 +702,10 @@
                           ) : null}
                         </div>
                         <div className="flex items-center gap-2">
+                          <EventShareMenu event={ev} buildShareLink={buildShareLink} />
                           <button onClick={()=>onSelect(ev.id)} className="tap text-sm px-3 py-1.5 rounded-lg border bg-gray-50 hover:bg-gray-100">Select</button>
-                          <button onClick={()=>{ onStartEdit(ev); window.scrollTo(0,0); }} className="tap text-sm px-3 py-1.5 rounded-lg border bg-blue-50 text-blue-700 hover:bg-blue-100">Edit</button><button onClick={()=>onDelete(ev)} className="tap text-sm px-3 py-1.5 rounded-lg border bg-red-50 text-red-700 hover:bg-red-100">Delete</button>
+                          <button onClick={()=>{ onStartEdit(ev); window.scrollTo(0,0); }} className="tap text-sm px-3 py-1.5 rounded-lg border bg-blue-50 text-blue-700 hover:bg-blue-100">Edit</button>
+                          <button onClick={()=>onDelete(ev)} className="tap text-sm px-3 py-1.5 rounded-lg border bg-red-50 text-red-700 hover:bg-red-100">Delete</button>
                         </div>
                       </li>
                     );
@@ -672,7 +767,7 @@
         );
       }
 
-      function EventDetail({ tz, event, dayGroups, currentFixedValue, currentPollValue, setVote, openHover, closeHover, namesBySlot, canAct, onBack }){
+      function EventDetail({ tz, event, dayGroups, currentFixedValue, currentPollValue, setVote, openHover, closeHover, namesBySlot, canAct, onBack, buildShareLink }){
         // Aggregate supporters (yes + maybe) for a given day
         function supportersForDay(dayStartMs){
           const ymd = new Date(dayStartMs).toISOString().slice(0,10);
@@ -711,7 +806,10 @@
                 <div className="text-xs text-gray-500">Dates: <b>{fmtDate(localStartOfDayMs(event.startDate), tz)}</b> → <b>{fmtDate(localStartOfDayMs(event.endDate), tz)}</b> · {timeLabel}</div>
                 <div className="text-xs text-gray-500">Hosted by: <b>{event.organizer || '—'}</b></div>
               </div>
-              <button onClick={onBack} className="tap text-sm px-3 py-1.5 rounded-lg border bg-gray-50 hover:bg-gray-100">← Back</button>
+              <div className="flex items-center gap-2">
+                <EventShareMenu event={event} buildShareLink={buildShareLink} buttonClassName="bg-gray-50" />
+                <button onClick={onBack} className="tap text-sm px-3 py-1.5 rounded-lg border bg-gray-50 hover:bg-gray-100">← Back</button>
+              </div>
             </section>
 
             {isFixed ? (
