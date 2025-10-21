@@ -1,243 +1,792 @@
+
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Plan Picker — Minimal</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <style>
-    html,body{background:#fff}
-    .tap{padding:10px 12px;font-size:14px}
-    .menu{position:absolute;right:0;top:100%;margin-top:.25rem}
-  </style>
-</head>
-<body class="p-4 sm:p-6 max-w-3xl mx-auto">
-  <header class="flex items-center justify-between mb-4">
-    <h1 class="text-2xl font-semibold">🗓️ Plan Picker (Minimal)</h1>
-    <span class="text-sm text-gray-500">Local-only · No Firebase</span>
-  </header>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Team — Plan Picker (Date fix + names on main)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+      html,body,#root{height:100%;background:#fff}
+      * { min-width: 0; }
+      .tap { padding: 10px 12px; font-size: 14px; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
 
-  <section class="bg-white rounded-2xl shadow p-4 mb-6">
-    <h2 class="text-lg font-semibold mb-3">Create a new event</h2>
-    <form id="form" class="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end w-full">
-      <label class="flex flex-col gap-1 sm:col-span-6">
-        <span class="text-sm text-gray-700">Event name</span>
-        <input id="title" class="tap border rounded-md px-2 py-1 text-sm w-full" placeholder="Brunch / Study session" required>
-      </label>
-      <label class="flex flex-col gap-1 sm:col-span-6">
-        <span class="text-sm text-gray-700">Description (optional)</span>
-        <input id="desc" class="tap border rounded-md px-2 py-1 text-sm w-full" placeholder="Short note: location, vibe...">
-      </label>
-      <label class="flex flex-col gap-1 sm:col-span-4">
-        <span class="text-sm text-gray-700">Start date</span>
-        <input id="startDate" type="date" class="tap border rounded-md px-2 py-1 text-sm w-full" required>
-      </label>
-      <label class="flex flex-col gap-1 sm:col-span-4">
-        <span class="text-sm text-gray-700">End date</span>
-        <input id="endDate" type="date" class="tap border rounded-md px-2 py-1 text-sm w-full" required>
-      </label>
-      <label class="flex flex-col gap-1 sm:col-span-2">
-        <span class="text-sm text-gray-700">Start time</span>
-        <select id="startHour" class="tap border rounded-md px-2 py-1 text-sm w-full"></select>
-      </label>
-      <label class="flex flex-col gap-1 sm:col-span-2">
-        <span class="text-sm text-gray-700">End time</span>
-        <select id="endHour" class="tap border rounded-md px-2 py-1 text-sm w-full"></select>
-      </label>
-      <label class="flex flex-col gap-1 sm:col-span-4">
-        <span class="text-sm text-gray-700">Type</span>
-        <select id="etype" class="tap border rounded-md px-2 py-1 text-sm w-full">
-          <option value="poll">Find a time</option>
-          <option value="fixed">Fixed</option>
-        </select>
-      </label>
-      <div class="sm:col-span-12">
-        <button class="tap text-sm px-3 py-2 rounded-lg border bg-emerald-50 hover:bg-emerald-100">Create event</button>
-      </div>
-    </form>
-  </section>
+    <!-- Firebase (Modular v12) -->
+    <script type="module">
+      import { initializeApp } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-app.js";
+      import { getFirestore, collection, addDoc, doc, setDoc, onSnapshot, query, orderBy, getDocs, deleteDoc } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-firestore.js";
+      import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-auth.js";
 
-  <section class="bg-white rounded-2xl shadow p-4">
-    <h2 class="text-lg font-semibold mb-3">Your events</h2>
-    <ul id="list" class="divide-y"></ul>
-    <div id="empty" class="text-sm text-gray-600">No events yet.</div>
-  </section>
+      const firebaseConfig = {
+        apiKey: "AIzaSyCrgMr4JyvEunCIdVTmIBpkRan8tkhGefI",
+        authDomain: "teamtectle.firebaseapp.com",
+        projectId: "teamtectle",
+        storageBucket: "teamtectle.firebasestorage.app",
+        messagingSenderId: "1047184210223",
+        appId: "1:1047184210223:web:567b12981e12b9893d49da"
+      };
 
-  <script>
-    const $ = (s, r=document)=> r.querySelector(s);
-    const $$ = (s, r=document)=> [...r.querySelectorAll(s)];
-    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-    const SKEY = "minimal-plan-picker-events-v1";
-
-    function pad(n){ return String(n).padStart(2,'0'); }
-    function labelHour(h){ const ampm=h<12?'am':'pm'; const hr=((h+11)%12)+1; return hr+ampm; }
-    function fmtDate(ms){ return new Date(ms).toLocaleDateString(undefined,{timeZone:tz,weekday:'short',month:'short',day:'numeric'}); }
-    function fmtTime(ms){ return new Date(ms).toLocaleTimeString(undefined,{timeZone:tz,hour:'numeric',minute:'2-digit'}); }
-    function sodMs(ymd){ const [y,m,d]=ymd.split('-').map(Number); return new Date(y,m-1,d,0,0,0,0).getTime(); }
-
-    function load(){ try{ return JSON.parse(localStorage.getItem(SKEY))||[] }catch{ return [] } }
-    function save(v){ localStorage.setItem(SKEY, JSON.stringify(v)); }
-
-    function hourOptions(sel, def){
-      sel.innerHTML = "";
-      for(let h=0; h<24; h++){
-        const opt = document.createElement("option");
-        opt.value=h; opt.textContent=labelHour(h);
-        if(h===def) opt.selected=true;
-        sel.appendChild(opt);
+      let db = null, auth = null;
+      try {
+        const app = initializeApp(firebaseConfig);
+        db = getFirestore(app);
+        auth = getAuth(app);
+      } catch (e) {
+        console.warn("Firebase init failed; app will run in local-only mode.", e);
       }
-    }
+      window.__fb = { db, auth, collection, addDoc, doc, setDoc, onSnapshot, query, orderBy, getDocs, deleteDoc, signInAnonymously, onAuthStateChanged };
+    </script>
 
-    function buildShareText(ev){
-      const base = [
-        "📅 "+ev.title,
-        ev.desc ? ev.desc : null,
-        `${fmtDate(sodMs(ev.startDate))} → ${fmtDate(sodMs(ev.endDate))} · ${labelHour(+ev.startHour)}–${labelHour(+ev.endHour)}`,
-        ev.etype==='poll' ? "Type: Find a time" : "Type: Fixed",
-      ].filter(Boolean).join("\n");
-      return base;
-    }
+    <script type="text/babel" data-presets="env,react">
+      const { useMemo, useState, useEffect } = React;
 
-    function sortEvents(arr){
-      const now = Date.now();
-      function startMs(e){ return sodMs(e.startDate) + (+e.startHour)*3600*1000; }
-      return [...arr].sort((a,b)=>{
-        const am = startMs(a), bm = startMs(b);
-        const af = am >= now, bf = bm >= now;
-        if(af!==bf) return af? -1 : 1; // future first
-        if(af) return am - bm;         // both future → earliest first
-        return bm - am;                // both past   → most recent first
-      });
-    }
+      // ---------- Utilities (LOCAL TIME) ----------
+      const LS_KEY = "teamPlanner:nameKeyed:v6";
+      const normalizeName = (s)=> (s||'').trim().toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'');
+      const setCookie = (name, value, days=365)=>{
+        const d = new Date(); d.setTime(d.getTime()+days*24*60*60*1000);
+        document.cookie = name+"="+encodeURIComponent(value)+";expires="+d.toUTCString()+";path=/;SameSite=Lax";
+      };
+      const getCookie = (name)=>{
+        const n = name+"="; const ca = document.cookie.split(';');
+        for(let c of ca){ while(c.charAt(0)==' ') c=c.substring(1); if(c.indexOf(n)==0) return decodeURIComponent(c.substring(n.length,c.length)); }
+        return "";
+      };
+      const saveProfile = (obj)=>{ try{ localStorage.setItem(LS_KEY, JSON.stringify(obj)); setCookie(LS_KEY, JSON.stringify(obj)); }catch(e){} };
+      const loadProfile = ()=>{
+        try{ const rawLS = localStorage.getItem(LS_KEY); if (rawLS) return JSON.parse(rawLS); }catch(e){}
+        try{ const rawC = getCookie(LS_KEY); if (rawC) return JSON.parse(rawC); }catch(e){}
+        return null;
+      };
+      const prefillFromQuery = ()=>{ const params = new URLSearchParams(window.location.search); const nm = params.get("name"); return nm ? nm.trim() : ""; };
 
-    function render(){
-      const events = sortEvents(load());
-      const list = $("#list"); list.innerHTML="";
-      $("#empty").style.display = events.length? "none":"block";
+      const MS = 60 * 1000;
+      const fmtDate = (ms, tz) => new Date(ms).toLocaleDateString(undefined, { timeZone: tz, weekday:'short', month:'short', day:'numeric' });
+      const fmtTime = (ms, tz) => new Date(ms).toLocaleTimeString(undefined, { timeZone: tz, hour:'numeric', minute:'2-digit' });
+      const labelHour = (h)=>{ const ampm=h<12?'am':'pm'; const hour12=((h+11)%12)+1; return hour12+ampm; };
 
-      events.forEach(ev=>{
-        const li = document.createElement("li");
-        li.className="py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2";
+      function localStartOfDayMs(ymd){ const [y,m,d] = ymd.split('-').map(Number); return new Date(y, m-1, d, 0,0,0,0).getTime(); }
+      const addMinutesMs = (ms, mins)=> ms + mins*60*1000;
+      const addDaysMs = (ms, days)=> ms + days*24*60*60*1000;
 
-        const left = document.createElement("div");
-        left.className="text-sm";
-        left.innerHTML = \`
-          <div class="font-medium flex items-center gap-2 flex-wrap">
-            <span>\${ev.title}</span>
-            <span class="text-[10px] px-1.5 py-0.5 rounded border \${ev.etype==='poll'?'bg-blue-50 border-blue-300 text-blue-700':'bg-purple-50 border-purple-300 text-purple-700'}">
-              \${ev.etype==='poll'?'Find a time':'Fixed'}
-            </span>
-          </div>
-          \${ev.desc ? '<div class="text-[12px] text-gray-600 mt-0.5">'+ev.desc+'</div>': ''}
-          <div class="text-gray-500">\${fmtDate(sodMs(ev.startDate))} → \${fmtDate(sodMs(ev.endDate))} · \${labelHour(+ev.startHour)}–\${labelHour(+ev.endHour)}</div>
-        \`;
+      
+      function generateDailyHourRangeSlots(startDate,endDate,startHour,endHour){
+        const days = [];
+        const startMsDay = localStartOfDayMs(startDate);
+        const endMsDay   = localStartOfDayMs(endDate);
+        let curMs = startMsDay;
+        const same = startHour === endHour;
+        const overnight = startHour > endHour;
 
-        const right = document.createElement("div");
-        right.className="flex items-center gap-2 relative";
-
-        const btnSel = document.createElement("button");
-        btnSel.className="tap text-sm px-3 py-1.5 rounded-lg border bg-gray-50 hover:bg-gray-100";
-        btnSel.textContent="Select";
-        btnSel.onclick = ()=> alert("Detail view is omitted in the minimal build.");
-
-        const btnDel = document.createElement("button");
-        btnDel.className="tap text-sm px-3 py-1.5 rounded-lg border bg-red-50 text-red-700 hover:bg-red-100";
-        btnDel.textContent="Delete";
-        btnDel.onclick = ()=>{
-          const arr = load().filter(x=>x.id!==ev.id);
-          save(arr); render();
-        };
-
-        const wrap = document.createElement("div");
-        wrap.className="inline-block relative";
-        const bell = document.createElement("button");
-        bell.className="tap px-2 py-1 rounded-lg border bg-amber-50 hover:bg-amber-100 flex items-center gap-1";
-        bell.title="Share / notify";
-        bell.innerHTML = \`
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-4 h-4">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M14.5 18.5a2.5 2.5 0 1 1-5 0M5 9a7 7 0 1 1 14 0c0 3.148 1.167 4.167 1.75 5 .321.45-.013 1.083-.563 1.083H3.813c-.55 0-.884-.633-.563-1.083C3.833 13.167 5 12.148 5 9z"/>
-          </svg>
-          <span class="text-xs">Notify</span>\`;
-
-        const menu = document.createElement("div");
-        menu.className="menu hidden w-48 bg-white border shadow rounded-xl p-2 text-sm z-10";
-        menu.innerHTML = \`
-          <button class="w-full text-left px-2 py-1 rounded hover:bg-gray-50" data-act="copy">Copy details</button>
-          <button class="w-full text-left px-2 py-1 rounded hover:bg-gray-50" data-act="wa">Share on WhatsApp</button>
-          <button class="w-full text-left px-2 py-1 rounded hover:bg-gray-50" data-act="ig">Share on Instagram</button>
-        \`;
-
-        bell.onclick = ()=>{
-          // close other open menus
-          $$(".menu").forEach(m=> m!==menu && (m.classList.add("hidden")));
-          menu.classList.toggle("hidden");
-        };
-        menu.onclick = async (e)=>{
-          const act = e.target.dataset.act;
-          const txt = buildShareText(ev);
-          if(act==="copy"){
-            try{ await navigator.clipboard.writeText(txt); alert("Details copied to clipboard."); }catch{ alert("Copy failed."); }
-          }else if(act==="wa"){
-            window.open("https://wa.me/?text="+encodeURIComponent(txt), "_blank");
-          }else if(act==="ig"){
-            if(navigator.share){
-              try{ await navigator.share({ title: ev.title, text: txt }); }catch{}
-            }else{
-              try{ await navigator.clipboard.writeText(txt); alert("Copied! Paste into Instagram."); }catch{ alert("Open Instagram and paste the details."); }
+        while (curMs <= endMsDay) {
+          const slots = [];
+          if (same) {
+            const sMs = addMinutesMs(curMs, startHour * 60);
+            const eMs = addMinutesMs(sMs, 60);
+            const ymd = new Date(curMs).toISOString().slice(0,10);
+            slots.push({ id: `${ymd}|${startHour}`, startMs: sMs, endMs: eMs });
+          } else if (!overnight) {
+            for (let h = startHour; h < endHour; h++) {
+              const sMs = addMinutesMs(curMs, h * 60);
+              const eMs = addMinutesMs(sMs, 60);
+              const ymd = new Date(curMs).toISOString().slice(0,10);
+              slots.push({ id: `${ymd}|${h}`, startMs: sMs, endMs: eMs });
+            }
+          } else {
+            for (let h = startHour; h < 24; h++) {
+              const sMs = addMinutesMs(curMs, h * 60);
+              const eMs = addMinutesMs(sMs, 60);
+              const ymd = new Date(curMs).toISOString().slice(0,10);
+              slots.push({ id: `${ymd}|${h}`, startMs: sMs, endMs: eMs });
+            }
+            for (let h = 0; h < endHour; h++) {
+              const sMs = addMinutesMs(curMs, h * 60);
+              const eMs = addMinutesMs(sMs, 60);
+              const ymd = new Date(curMs).toISOString().slice(0,10);
+              slots.push({ id: `${ymd}|${h}`, startMs: sMs, endMs: eMs });
             }
           }
-          menu.classList.add("hidden");
+          days.push({ dayKey: new Date(curMs).toDateString(), dayStartMs: curMs, slots });
+          curMs = addDaysMs(curMs, 1);
+        }
+        return days;
+      }
+    
+
+      function pickBestSlotFromBuckets(buckets){
+        // buckets: Map<slotId, {yes[], maybe[], no[]}>
+        let bestId = null, bestSupporters = -1, bestSortKey = null;
+        const parseKey = (id)=>{
+          const [ymd,hStr] = id.split('|');
+          const hm = parseInt(hStr, 10);
+          return { ymd, h: hm };
         };
-        document.addEventListener("click", (e)=>{
-          if(!wrap.contains(e.target)) menu.classList.add("hidden");
-        });
+        for(const [slotId, bucket] of buckets.entries()){
+          const supporters = (bucket.yes?.length||0) + (bucket.maybe?.length||0);
+          const { ymd, h } = parseKey(slotId);
+          const sortKey = `${ymd}|${String(h).padStart(2,'0')}`;
+          if (supporters > bestSupporters || (supporters === bestSupporters && (!bestSortKey || sortKey < bestSortKey))) {
+            bestId = slotId;
+            bestSupporters = supporters;
+            bestSortKey = sortKey;
+          }
+        }
+        if (!bestId) return null;
+        return { slotId: bestId, supporters: bestSupporters };
+      }
 
-        wrap.appendChild(bell);
-        wrap.appendChild(menu);
+      function SegmentedVote({value, onChange, disabled}){
+        const base="tap text-[13px] px-2 py-1 rounded-md border " + (disabled ? "opacity-50 cursor-not-allowed" : "hover:bg-gray-50");
+        return (<div className="inline-flex gap-1">
+          <button type="button" className={base + (value==='yes'?' bg-green-100 border-green-300':'')} onClick={()=>!disabled && onChange('yes')}>Yes</button>
+          <button type="button" className={base + (value==='maybe'?' bg-yellow-100 border-yellow-300':'')} onClick={()=>!disabled && onChange('maybe')}>Maybe</button>
+          <button type="button" className={base + (value==='no'?' bg-red-100 border-red-300':'')} onClick={()=>!disabled && onChange('no')}>No</button>
+        </div>);
+      }
 
-        right.appendChild(btnSel);
-        right.appendChild(btnDel);
-        right.appendChild(wrap);
+      function HoverCard({ visible, anchorRect, names }){
+        if (!visible || !anchorRect) return null;
+        const style = { position: 'fixed', top: anchorRect.bottom + 6, left: Math.min(anchorRect.left, window.innerWidth - 280), width: 260, zIndex: 50 };
+        return (
+          <div style={style} className="bg-white border shadow-lg rounded-xl p-3 text-xs">
+            <div className="space-y-1">
+              <div><b>Yes</b> {names.yes.length ? `(${names.yes.length})` : ''}</div>
+              <div className="text-gray-600">{names.yes.join(', ') || '—'}</div>
+              <div className="mt-2"><b>Maybe</b> {names.maybe.length ? `(${names.maybe.length})` : ''}</div>
+              <div className="text-gray-600">{names.maybe.join(', ') || '—'}</div>
+              <div className="mt-2"><b>No</b> {names.no.length ? `(${names.no.length})` : ''}</div>
+              <div className="text-gray-600">{names.no.join(', ') || '—'}</div>
+            </div>
+          </div>
+        );
+      }
 
-        li.appendChild(left);
-        li.appendChild(right);
-        list.appendChild(li);
-      });
-    }
+      function App(){
+        const FB = window.__fb || {};
+        const db = FB.db || null;
+        const auth = FB.auth || null;
+        const { collection, addDoc, doc, setDoc, onSnapshot, query, orderBy, getDocs, deleteDoc, signInAnonymously, onAuthStateChanged } = FB;
 
-    function initFormDefaults(){
-      const now = new Date();
-      const nextSat = new Date(now);
-      nextSat.setDate(now.getDate() + ((6 - now.getDay() + 7) % 7 || 7));
-      const nextSun = new Date(nextSat); nextSun.setDate(nextSat.getDate()+1);
-      const ymd = d => d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());
-      $("#startDate").value = ymd(nextSat);
-      $("#endDate").value = ymd(nextSun);
-      hourOptions($("#startHour"), 8);
-      hourOptions($("#endHour"), 23);
-    }
+        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+        const now = new Date();
+        const nextSat = useMemo(()=>{ const d=new Date(now); const day=d.getDay(); const add=(6-day+7)%7||7; d.setDate(d.getDate()+add); return d; },[now]);
+        const nextSun = useMemo(()=>{ const d=new Date(nextSat); d.setDate(d.getDate()+1); return d; },[nextSat]);
+        const toYMD = (d)=> `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 
-    $("#form").addEventListener("submit", (e)=>{
-      e.preventDefault();
-      const title = $("#title").value.trim();
-      const desc = $("#desc").value.trim();
-      const startDate = $("#startDate").value;
-      const endDate = $("#endDate").value;
-      const startHour = +$("#startHour").value;
-      const endHour = +$("#endHour").value;
-      const etype = $("#etype").value;
+        // Name profile
+        const [userName,setUserName]=useState('');
+        const [isEditingUser,setIsEditingUser]=useState(true);
+        const [uid,setUid]=useState(null);
 
-      if(!title) return;
-      if(new Date(startDate) > new Date(endDate)){ alert("Start date must be before end date."); return; }
-      if(etype==="fixed" && endHour <= startHour && startDate===endDate){ alert("End time must be after start time for fixed events."); return; }
+        // Create form
+        const [title,setTitle]=useState('');
+        const [description,setDescription]=useState('');
+        const [startDate,setStartDate]=useState(toYMD(nextSat));
+        const [endDate,setEndDate]=useState(toYMD(nextSun));
+        const [startHour,setStartHour]=useState(8);
+        const [endHour,setEndHour]=useState(23); // default 11pm
+        const [mode,setMode]=useState('poll');
+        const [endTouched,setEndTouched]=useState(false);
 
-      const ev = { id: Math.random().toString(36).slice(2), title, desc, startDate, endDate, startHour, endHour, etype, createdAt: new Date().toISOString() };
-      const arr = load(); arr.push(ev); save(arr);
-      e.target.reset(); initFormDefaults(); render();
-    });
+        // Data
+        const [events,setEvents]=useState([]);
+        const [selectedId,setSelectedId]=useState(null);
+        const [editTarget, setEditTarget] = useState(null);
+        const [yourVotes,setYourVotes]=useState(new Map());
 
-    initFormDefaults();
-    render();
-  </script>
-</body>
+        const [namesBySlotSelected,setNamesBySlotSelected]=useState(new Map());
+        const [attendingMap,setAttendingMap]=useState({});
+        const [pollBestMap,setPollBestMap]=useState({}); // { [eventId]: {slotId, supporters, names[], dayMs, hour} }
+        const [hoverState,setHoverState]=useState({ visible:false, rect:null, names:{yes:[], maybe:[], no:[]} });
+
+        // Prefill name
+        useEffect(()=>{
+          const prof = loadProfile();
+          const qName = prefillFromQuery();
+          const initialName = qName || (prof?.userName || '');
+          setUserName(initialName);
+          setIsEditingUser(!(initialName && initialName.trim()));
+        },[]);
+        useEffect(()=>{ saveProfile({ userName }); },[userName]);
+
+        // Anonymous auth
+        useEffect(()=>{
+          if (!auth) return;
+          const unsub = onAuthStateChanged(auth, async (u) => {
+            if (u) setUid(u.uid);
+            else {
+              try { const cred = await signInAnonymously(auth); setUid(cred.user?.uid || null); }
+              catch { setUid(null); }
+            }
+          });
+          return () => unsub && unsub();
+        },[auth]);
+
+        // Live events
+        useEffect(()=>{
+          if(!db) return;
+          const q = query(collection(db, "team_events"), orderBy("createdAt","asc"));
+          const unsub = onSnapshot(q, (snap)=>{
+            const list = snap.docs.map(d=>({ id:d.id, ...d.data() }));
+            setEvents(list);
+          });
+          return unsub;
+        },[db])
+        useEffect(()=>{
+          if (editTarget){
+            setTitle(editTarget.title || '');
+            setDescription(editTarget.description || '');
+            setStartDate(editTarget.startDate);
+            setEndDate(editTarget.endDate);
+            setStartHour(editTarget.startHour ?? 8);
+            setEndHour(editTarget.endHour ?? 23);
+            setMode(editTarget.mode || 'poll');
+          }
+        },[editTarget]);
+    ;
+
+        // Per-event votes (for fixed attending + poll best names on main page)
+        useEffect(()=>{
+          if(!db) return;
+          const unsubs = [];
+          events.forEach(ev => {
+            const votesRef = collection(doc(db, "team_events", ev.id), "votes");
+            const u = onSnapshot(votesRef, (snap)=>{
+              let yes=0; const namesYes=[];
+              const slotBuckets = new Map(); // slotId -> {yes[], maybe[], no[]}
+              snap.forEach(s=>{
+                const v = s.data();
+                if (s.id.startsWith("fixed::")) {
+                  if (v.value === 'yes') { yes += 1; namesYes.push(v.userName || 'Anonymous'); }
+                } else if (v.slotId) {
+                  const b = slotBuckets.get(v.slotId) || { yes:[], maybe:[], no:[] };
+                  const nm = v.userName || 'Anonymous';
+                  if (v.value==='yes') b.yes.push(nm);
+                  else if (v.value==='maybe') b.maybe.push(nm);
+                  else if (v.value==='no') b.no.push(nm);
+                  slotBuckets.set(v.slotId, b);
+                }
+              });
+              // Fixed summaries
+              setAttendingMap(prev => ({ ...prev, [ev.id]: { yes, namesYes } }));
+              // Poll best summaries (names for best slot)
+              if (ev.mode === 'poll') {
+                const best = pickBestSlotFromBuckets(slotBuckets);
+                if (best) {
+                  const bucket = slotBuckets.get(best.slotId) || { yes:[], maybe:[], no:[] };
+                  const names = [...bucket.yes, ...bucket.maybe];
+                  setPollBestMap(prev => ({ ...prev, [ev.id]: { slotId: best.slotId, supporters: best.supporters, names } }));
+                } else {
+                  setPollBestMap(prev => ({ ...prev, [ev.id]: null }));
+                }
+              }
+            });
+            unsubs.push(u);
+          });
+          return ()=> unsubs.forEach(fn => fn && fn());
+        },[db, events]);
+
+        // Selected event votes (for hover + current values)
+        useEffect(()=>{
+          if(!db || !selectedId) return;
+          const votesRef = collection(doc(db, "team_events", selectedId), "votes");
+          const unsub = onSnapshot(votesRef, (snap)=>{
+            const mapValues = new Map();
+            const mapNames = new Map();
+            snap.forEach(docSnap => {
+              const v = docSnap.data();
+              mapValues.set(docSnap.id, v.value);
+              if (v.slotId) {
+                const bucket = mapNames.get(v.slotId) || { yes:[], maybe:[], no:[] };
+                const nm = v.userName || 'Anonymous';
+                if (v.value === 'yes') bucket.yes.push(nm);
+                else if (v.value === 'maybe') bucket.maybe.push(nm);
+                else if (v.value === 'no') bucket.no.push(nm);
+                mapNames.set(v.slotId, bucket);
+              }
+            });
+            setYourVotes(mapValues);
+            setNamesBySlotSelected(mapNames);
+          });
+          return ()=>unsub && unsub();
+        },[db, selectedId]);
+
+        const selected = events.find(e=>e.id===selectedId)||null;
+
+        function handleStartDateChange(val){ setStartDate(val); if(!endTouched) setEndDate(val); }
+        function handleEndDateChange(val){ setEndDate(val); setEndTouched(true); }
+
+        const nameKey = normalizeName(userName);
+        const canAct = !!nameKey;
+
+        async function createEvent(e){
+          e.preventDefault();
+          if(!title.trim()) return;
+          if(!canAct){ alert("Please set your name first."); return; }
+          const start=new Date(startDate), end=new Date(endDate);
+          if(start>end){ alert('Start date must be before end date.'); return; }
+          const startMs = localStartOfDayMs(startDate) + startHour * 60 * 60 * 1000;
+          const endMs   = localStartOfDayMs(endDate)   + endHour   * 60 * 60 * 1000;
+          const isPoll = mode === 'poll';
+          if (endMs < startMs || (!isPoll && endMs === startMs)) {
+            alert("End time must be after start time (for fixed events). In Find a time, equal start/end is allowed.");
+            return;
+          }
+          const ev={
+            title: title.trim(),
+            description: description.trim(),
+            timezone: tz,
+            startDate, endDate,
+            startHour, endHour,
+            organizer: userName.trim(),
+            mode,
+            createdAt: new Date().toISOString(),
+            createdBy: (uid || null)
+          };
+
+          if(db){
+            const docRef = await addDoc(collection(db, "team_events"), ev);
+            if(mode==='fixed' && nameKey){
+              const votesRef = collection(doc(db, "team_events", docRef.id), "votes");
+              await setDoc(doc(votesRef, `fixed::${nameKey}`), { value:'yes', userName: userName.trim(), slotId: null, updatedAt: new Date().toISOString() });
+            }
+          }else{
+            const id = Math.random().toString(36).slice(2);
+            const newEv = { id, ...ev };
+            setEvents(p=>[...p, newEv]);
+            if(mode==='fixed'){
+              setYourVotes(p=> new Map(p).set(`fixed::${nameKey}`, 'yes'));
+            }
+          }
+
+          setTitle(''); setDescription(''); setStartHour(8); setEndHour(23); setMode('poll'); setEndTouched(false);
+        }
+
+        async function setVoteForEvent(evId, value, meta){
+          if(!canAct){ alert("Please set your name first."); return; }
+          if(db){
+            const votesRef = collection(doc(db, "team_events", evId), "votes");
+            const docId = (meta.type==='fixed') ? `fixed::${nameKey}` : `${nameKey}::${meta.slotId}`;
+            await setDoc(doc(votesRef, docId), { value, userName: userName.trim(), slotId: meta.slotId || null, updatedAt: new Date().toISOString() });
+          }else{
+            const key = (meta.type==='fixed') ? `fixed::${nameKey}` : `${nameKey}::${meta.slotId}`;
+            setYourVotes(p=> new Map(p).set(key, value));
+          }
+        }
+
+        async function requestDelete(ev){
+          if(!confirm("Delete this event?")) return;
+          if(db){
+            try {
+              const votesRef = collection(doc(db, "team_events", ev.id), "votes");
+              const snap = await getDocs(votesRef);
+              const ops = [];
+              snap.forEach(d => ops.push(deleteDoc(d.ref)));
+              await Promise.all(ops);
+              await deleteDoc(doc(db, "team_events", ev.id));
+            } catch (e) {
+              console.error(e);
+              alert("Delete failed. Check Firestore rules (they must allow delete for everyone).");
+            }
+          }
+        }
+
+        // For selected event, build day groups using local time
+        const dayGroups = useMemo(()=>{
+          if(!selected || selected.mode==='fixed') return [];
+          const sHour = selected.startHour ?? 8;
+          const eHour = selected.endHour ?? 23;
+          return generateDailyHourRangeSlots(selected.startDate, selected.endDate, sHour, eHour);
+        },[selected]);
+
+        function currentFixedValue(){ return yourVotes.get(`fixed::${normalizeName(userName)}`); }
+        function currentPollValue(slotId){ return yourVotes.get(`${normalizeName(userName)}::${slotId}`); }
+
+        function openHover(e, slotId){
+          const rect = e.currentTarget.getBoundingClientRect();
+          const bucket = namesBySlotSelected.get(slotId) || { yes:[], maybe:[], no:[] };
+          setHoverState({ visible:true, rect, names: bucket });
+        }
+        function closeHover(){ setHoverState({ visible:false, rect:null, names:{yes:[], maybe:[], no:[]} }); }
+
+        function summaryForEvent(ev){
+          const att = attendingMap[ev.id];
+          const timeLabel = `${labelHour(ev.startHour ?? 8)}–${labelHour(ev.endHour ?? 23)}`;
+          if(ev.mode==='fixed'){
+            if(att) {
+              const names = att.namesYes || [];
+              const first = names.slice(0,5).join(', ');
+              const extra = Math.max(0, (names.length - 5));
+              return { type:'fixed', yes: att.yes, label: first + (extra? ` +${extra} more`: ''), timeLabel };
+            }
+            return { type:'fixed', yes: 0, label: '', timeLabel };
+          } else {
+            const best = pollBestMap[ev.id];
+            return { type:'poll', best, timeLabel };
+          }
+        }
+
+        return (
+          <div className="bg-white min-h-screen p-4 sm:p-6 max-w-6xl mx-auto font-sans">
+            <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
+              <button onClick={()=>setSelectedId(null)} className="text-left">
+                <h1 className="text-2xl font-semibold hover:underline">🗓️ Team</h1>
+              </button>
+              <div className="flex items-center gap-2">
+                {isEditingUser ? (
+                  <form onSubmit={(e)=>{e.preventDefault(); setIsEditingUser(false);}} className="flex items-center gap-2 w-full sm:w-auto">
+                    <input autoFocus className="tap border rounded-md px-2 py-1 text-sm w-full" placeholder="Your name" value={userName} onChange={(e)=>setUserName(e.target.value)} />
+                    <button className="tap text-sm px-3 py-1.5 rounded-lg border bg-emerald-50 hover:bg-emerald-100" type="submit">Save</button>
+                  </form>
+                ) : (
+                  <div className="flex items-center gap-2 text-sm w-full sm:w-auto justify-between sm:justify-end">
+                    <span className="text-gray-600">Signed in as <b>{userName || '—'}</b></span>
+                    <button onClick={()=>setIsEditingUser(true)} className="tap px-2 py-1 rounded-md border hover:bg-gray-50">Change</button>
+                  </div>
+                )}
+              </div>
+            </header>
+
+            {!canAct && (
+              <div className="p-3 rounded-xl border bg-yellow-50 text-sm mb-4">
+                Please set your <b>name</b> (top‑right) to create events or vote.
+              </div>
+            )}
+
+            {!db && (
+              <div className="p-3 rounded-xl border bg-yellow-50 text-sm mb-4">
+                Cloud sync is <b>off</b>. If this is unexpected, check your Firebase config and Firestore rules.
+              </div>
+            )}
+
+           
+            {editTarget && (
+              <section className="bg-white rounded-2xl shadow p-4 mt-4">
+                <h2 className="text-lg font-semibold mb-3">Edit event</h2>
+                <form onSubmit={(e)=>{e.preventDefault();
+                  const updated = { title, description, startDate, endDate, startHour, endHour, mode };
+                  if (db) { setDoc(doc(db, "team_events", editTarget.id), updated, { merge: true }); }
+                  else { setEvents(prev => prev.map(ev => ev.id===editTarget.id ? { ...ev, ...updated } : ev)); }
+                  setEditTarget(null);
+                }} className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end w-full">
+                  <label className="flex flex-col gap-1 sm:col-span-6">
+                    <span className="text-sm text-gray-700">Event name</span>
+                    <input className="tap border rounded-md px-2 py-1 text-sm w-full" value={title} onChange={e=>setTitle(e.target.value)} required/>
+                  </label>
+                  <label className="flex flex-col gap-1 sm:col-span-6">
+                    <span className="text-sm text-gray-700">Description (optional)</span>
+                    <input className="tap border rounded-md px-2 py-1 text-sm w-full" value={description} onChange={e=>setDescription(e.target.value)} />
+                  </label>
+                  <label className="flex flex-col gap-1 sm:col-span-3">
+                    <span className="text-sm text-gray-700">Start date</span>
+                    <input type="date" className="tap border rounded-md px-2 py-1 text-sm w-full" value={startDate} onChange={e=>setStartDate(e.target.value)} />
+                  </label>
+                  <label className="flex flex-col gap-1 sm:col-span-3">
+                    <span className="text-sm text-gray-700">End date</span>
+                    <input type="date" className="tap border rounded-md px-2 py-1 text-sm w-full" value={endDate} onChange={e=>setEndDate(e.target.value)} />
+                  </label>
+                  <label className="flex flex-col gap-1 sm:col-span-3">
+                    <span className="text-sm text-gray-700">Start hour</span>
+                    <input type="number" min="0" max="23" className="tap border rounded-md px-2 py-1 text-sm w-full" value={startHour} onChange={e=>setStartHour(parseInt(e.target.value||'0',10))} />
+                  </label>
+                  <label className="flex flex-col gap-1 sm:col-span-3">
+                    <span className="text-sm text-gray-700">End hour</span>
+                    <input type="number" min="1" max="24" className="tap border rounded-md px-2 py-1 text-sm w-full" value={endHour} onChange={e=>setEndHour(parseInt(e.target.value||'0',10))} />
+                  </label>
+                  <div className="sm:col-span-12 flex items-center gap-2">
+                    <button type="submit" className="tap text-sm px-3 py-1.5 rounded-lg border bg-blue-50 text-blue-700 hover:bg-blue-100">Save</button>
+                    <button type="button" onClick={()=>setEditTarget(null)} className="tap text-sm px-3 py-1.5 rounded-lg border bg-gray-50 hover:bg-gray-100">Cancel</button>
+                  </div>
+                </form>
+              </section>
+            )}
+ {!selected ? (
+              <EventList
+                tz={tz}
+                events={events}
+                onSelect={setSelectedId}
+                onDelete={requestDelete}
+                title={title}
+                description={description}
+                startDate={startDate}
+                endDate={endDate}
+                startHour={startHour}
+                endHour={endHour}
+                setTitle={setTitle}
+                setDescription={setDescription}
+                setStartDate={(v)=>{ setStartDate(v); if(!endTouched) setEndDate(v); }}
+                setEndDate={(v)=>{ setEndDate(v); setEndTouched(true); }}
+                setStartHour={setStartHour}
+                setEndHour={setEndHour}
+                mode={mode}
+                setMode={setMode}
+                onCreate={createEvent}
+                summaryForEvent={summaryForEvent}
+                canAct={canAct} onStartEdit={setEditTarget}
+              />
+            ) : (
+              <EventDetail
+                tz={tz}
+                event={selected}
+                dayGroups={dayGroups}
+                currentFixedValue={()=>yourVotes.get(`fixed::${normalizeName(userName)}`)}
+                currentPollValue={(slotId)=>yourVotes.get(`${normalizeName(userName)}::${slotId}`)}
+                setVote={(val, meta)=>setVoteForEvent(selected.id, val, meta)}
+                openHover={openHover}
+                closeHover={closeHover}
+                namesBySlot={namesBySlotSelected}
+                canAct={canAct}
+                onBack={()=>setSelectedId(null)}
+              />
+            )}
+
+            <HoverCard visible={hoverState.visible} anchorRect={hoverState.rect} names={hoverState.names} />
+          </div>
+        );
+      }
+
+      function EventList(props){
+        const {
+          tz, events, onSelect, onDelete, title, description, startDate, endDate,
+          startHour, endHour, setTitle, setDescription, setStartDate, setEndDate,
+          setStartHour, setEndHour, mode, setMode, onCreate, summaryForEvent,
+          canAct, onStartEdit } = props;
+
+        function Pill({children}){ return <span className="px-2 py-1 rounded-full text-xs border">{children}</span>; }
+
+        return (
+          <div className="space-y-8">
+            <section className="bg-white rounded-2xl shadow p-4">
+              <h2 className="text-lg font-semibold mb-3">Your events</h2>
+              {events.length ? (
+                <ul className="divide-y">
+                  {events.map(ev => {
+                    const summary = summaryForEvent(ev);
+                    const timeLabel = summary.timeLabel || `${labelHour(ev.startHour ?? 8)}–${labelHour(ev.endHour ?? 23)}`;
+                    return (
+                      <li key={ev.id} className="py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                        <div className="text-sm">
+                          <div className="font-medium flex items-center gap-2 flex-wrap">
+                            {ev.title}
+                            <span className={"text-[10px] px-1.5 py-0.5 rounded border " + (ev.mode==='poll'?'bg-blue-50 border-blue-300 text-blue-700':'bg-purple-50 border-purple-300 text-purple-700')}>
+                              {ev.mode==='poll'?'Find a time':'Fixed'}
+                            </span>
+                          </div>
+                          {ev.description ? <div className="text-[12px] text-gray-600 mt-0.5">{ev.description}</div> : null}
+                          <div className="text-gray-500">{fmtDate(localStartOfDayMs(ev.startDate), tz)} → {fmtDate(localStartOfDayMs(ev.endDate), tz)} · {timeLabel}</div>
+
+                          {summary?.type==='fixed' ? (
+                            <div className="text-[12px] mt-1">
+                              <b>Attending:</b> {summary.yes} {summary.yes===1?'person':'people'}{summary.label ? ` · ${summary.label}` : ''}
+                            </div>
+                          ) : summary?.type==='poll' && summary.best ? (
+                            <div className="text-[12px] mt-1 flex flex-wrap items-center gap-1">
+                              <b>Top candidate:</b>
+                              <span>{/* We'll print date/time from slotId */}
+                                {(() => {
+                                  const [ymd,hStr] = summary.best.slotId.split('|');
+                                  const ms = localStartOfDayMs(ymd) + parseInt(hStr,10)*60*60*1000;
+                                  return `${fmtDate(ms, tz)} · ${fmtTime(ms, tz)}`;
+                                })()}
+                              </span>
+                              <span>·</span>
+                              <span className="text-gray-700">
+                                {(() => {
+                                  const names = summary.best.names || [];
+                                  const shown = names.slice(0, 6).join(', ');
+                                  const extra = Math.max(0, names.length - 6);
+                                  return `${shown}${extra ? ` +${extra} more` : ''} ${names.length ? `(${names.length})` : '(0)'}`;
+                                })()}
+                              </span>
+                            </div>
+                          ) : null}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button onClick={()=>onSelect(ev.id)} className="tap text-sm px-3 py-1.5 rounded-lg border bg-gray-50 hover:bg-gray-100">Select</button>
+                          <button onClick={()=>{ onStartEdit(ev); window.scrollTo(0,0); }} className="tap text-sm px-3 py-1.5 rounded-lg border bg-blue-50 text-blue-700 hover:bg-blue-100">Edit</button><button onClick={()=>onDelete(ev)} className="tap text-sm px-3 py-1.5 rounded-lg border bg-red-50 text-red-700 hover:bg-red-100">Delete</button>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <div className="text-sm text-gray-600">No events yet. Create one below.</div>
+              )}
+            </section>
+
+            <section className="bg-white rounded-2xl shadow p-4">
+              <h2 className="text-lg font-semibold mb-3">Create a new event</h2>
+              <form onSubmit={onCreate} className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end w-full">
+                <label className="flex flex-col gap-1 sm:col-span-6">
+                  <span className="text-sm text-gray-700">Event name</span>
+                  <input className="tap border rounded-md px-2 py-1 text-sm w-full" value={title} onChange={e=>setTitle(e.target.value)} placeholder="Brunch / Study session / ..." required/>
+                </label>
+                <label className="flex flex-col gap-1 sm:col-span-6">
+                  <span className="text-sm text-gray-700">Description (optional)</span>
+                  <input className="tap border rounded-md px-2 py-1 text-sm w-full" value={description} onChange={e=>setDescription(e.target.value)} placeholder="Short note e.g. location, budget, vibe"/>
+                </label>
+
+                <label className="flex flex-col gap-1 sm:col-span-4">
+                  <span className="text-sm text-gray-700">Start date</span>
+                  <input type="date" className="tap border rounded-md px-2 py-1 text-sm w-full" value={startDate} onChange={e=>setStartDate(e.target.value)} required/>
+                </label>
+                <label className="flex flex-col gap-1 sm:col-span-4">
+                  <span className="text-sm text-gray-700">End date</span>
+                  <input type="date" className="tap border rounded-md px-2 py-1 text-sm w-full" value={endDate} onChange={e=>setEndDate(e.target.value)} required/>
+                </label>
+
+                <label className="flex flex-col gap-1 sm:col-span-2">
+                  <span className="text-sm text-gray-700">Start time</span>
+                  <select className="tap border rounded-md px-2 py-1 text-sm w-full" value={startHour} onChange={e=>setStartHour(parseInt(e.target.value))}>
+                    {Array.from({length:24},(_,h)=>h).map(h=><option key={h} value={h}>{labelHour(h)}</option>)}
+                  </select>
+                </label>
+                <label className="flex flex-col gap-1 sm:col-span-2">
+                  <span className="text-sm text-gray-700">End time</span>
+                  <select className="tap border rounded-md px-2 py-1 text-sm w-full" value={endHour} onChange={e=>setEndHour(parseInt(e.target.value))}>
+                    {Array.from({length:24},(_,h)=>h).map(h=><option key={h} value={h}>{labelHour(h)}</option>)}
+                  </select>
+                </label>
+
+                <label className="flex flex-col gap-1 sm:col-span-4">
+                  <span className="text-sm text-gray-700">Event type</span>
+                  <select className="tap border rounded-md px-2 py-1 text-sm w-full" value={mode} onChange={e=>setMode(e.target.value)}>
+                    <option value="poll">Find a time (confirm when people are free)</option>
+                    <option value="fixed">Fixed date (collect RSVPs)</option>
+                  </select>
+                </label>
+
+                <div className="flex items-end sm:col-span-12">
+                  <button type="submit" disabled={!canAct} className={"tap text-sm px-3 py-2 rounded-lg border " + (canAct? "bg-emerald-50 hover:bg-emerald-100":"opacity-50 cursor-not-allowed")}>Create event</button>
+                </div>
+              </form>
+            </section>
+          </div>
+        );
+      }
+
+      function EventDetail({ tz, event, dayGroups, currentFixedValue, currentPollValue, setVote, openHover, closeHover, namesBySlot, canAct, onBack }){
+        // Aggregate supporters (yes + maybe) for a given day
+        function supportersForDay(dayStartMs){
+          const ymd = new Date(dayStartMs).toISOString().slice(0,10);
+          const set = new Set();
+          if (namesBySlot && namesBySlot.entries) {
+            for (const [slotId, bucket] of namesBySlot.entries()){
+              if (!slotId.startsWith(ymd + '|')) continue;
+              [...(bucket.yes||[]), ...(bucket.maybe||[])].forEach(n => set.add(n));
+            }
+          }
+          const arr = Array.from(set);
+          return { count: arr.length, names: arr };
+        }
+
+        const isFixed = event.mode === 'fixed';
+        const timeLabel = `${labelHour(event.startHour ?? 8)}–${labelHour(event.endHour ?? 23)}`;
+
+        // Helper for rendering name list with "+N more"
+        function NameList({ names, max=6 }){
+          const shown = names.slice(0, max);
+          const extra = Math.max(0, names.length - shown.length);
+          return <span>{shown.join(', ')}{extra ? ` +${extra} more` : ''} {names.length ? `(${names.length})` : '(0)'}</span>;
+        }
+
+        return (
+          <div className="space-y-6">
+            <section className="bg-white rounded-2xl shadow p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div className="min-w-0">
+                <h2 className="text-lg font-semibold flex items-center gap-2 flex-wrap">
+                  {event.title}
+                  <span className={"text-[10px] px-1.5 py-0.5 rounded border " + (isFixed?'bg-purple-50 border-purple-300 text-purple-700':'bg-blue-50 border-blue-300 text-blue-700')}>
+                    {isFixed?'Fixed':'Find a time'}
+                  </span>
+                </h2>
+                {event.description ? <div className="text-[12px] text-gray-600 mt-0.5">{event.description}</div> : null}
+                <div className="text-xs text-gray-500">Dates: <b>{fmtDate(localStartOfDayMs(event.startDate), tz)}</b> → <b>{fmtDate(localStartOfDayMs(event.endDate), tz)}</b> · {timeLabel}</div>
+                <div className="text-xs text-gray-500">Hosted by: <b>{event.organizer || '—'}</b></div>
+              </div>
+              <button onClick={onBack} className="tap text-sm px-3 py-1.5 rounded-lg border bg-gray-50 hover:bg-gray-100">← Back</button>
+            </section>
+
+            {isFixed ? (
+              <section className="bg-white rounded-2xl shadow p-4">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm">Will you attend?</div>
+                  <SegmentedVote value={currentFixedValue()} onChange={(v)=>setVote(v, { type:'fixed' })} disabled={!canAct} />
+                </div>
+              </section>
+            ) : (
+              <section className="bg-white rounded-2xl shadow p-4">
+                {dayGroups.length === 0 ? (
+                  <div className="text-sm text-gray-600">No dates in this event.</div>
+                ) : (
+                  <div className="space-y-6">
+                    {dayGroups.map(g => (
+                      <div key={g.dayKey}>
+                        {(() => { const sup = supportersForDay(g.dayStartMs); const list = sup.names.slice(0,6).join(', '); const extra = Math.max(0, sup.names.length-6); return (<div className="text-sm font-semibold mb-2 flex flex-wrap items-center gap-2"><span>{fmtDate(g.dayStartMs, tz)}</span><span className="text-xs font-normal text-gray-600"> Supporters: ({sup.count}) – {list}{extra ? ` +${extra} more` : ""}{sup.count ? "" : "—"}</span></div>); })()}
+                        <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
+                          {g.slots.map(s => (
+                            <div key={s.id} className="border rounded-lg p-2" onMouseEnter={(e)=>openHover(e, s.id)} onMouseLeave={closeHover}>
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="text-[12px] text-gray-700">{fmtTime(s.startMs, tz)}</div>
+                                <SegmentedVote value={currentPollValue(s.id)} onChange={(v)=>setVote(v, { type:'poll', slotId: s.id })} disabled={!canAct} />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+            )}
+
+            {!isFixed && (
+              <section className="bg-white rounded-2xl shadow p-4">
+                <h3 className="text-lg font-semibold mb-2">Top candidate</h3>
+                {(() => {
+                  // compute best from namesBySlot (selected event)
+                  const best = (()=>{
+                    let bId=null, bSup=-1, bKey=null;
+                    for (const [slotId, bucket] of namesBySlot.entries()){
+                      const supporters = (bucket.yes?.length||0) + (bucket.maybe?.length||0);
+                      const [ymd,hStr] = slotId.split('|'); const key = `${ymd}|${String(parseInt(hStr,10)).padStart(2,'0')}`;
+                      if (supporters > bSup || (supporters===bSup && (!bKey || key < bKey))) { bId=slotId; bSup=supporters; bKey=key; }
+                    }
+                    if(!bId) return null;
+                    return { slotId:bId, supporters:bSup };
+                  })();
+                  if (!best) return <div className="text-sm text-gray-600">Cast some votes to see the best time.</div>;
+                  const [ymd,hStr] = best.slotId.split('|');
+                  const ms = localStartOfDayMs(ymd) + parseInt(hStr,10)*60*60*1000;
+                  const bucket = namesBySlot.get(best.slotId) || { yes:[], maybe:[], no:[] };
+                  const names = [...(bucket.yes||[]), ...(bucket.maybe||[])];
+                  return (
+                    <div className="flex flex-col gap-1 text-sm">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span>Time:</span>
+                        <span className="px-2 py-1 rounded-full text-xs border">{fmtDate(ms, tz)} · {fmtTime(ms, tz)}</span>
+                      </div>
+                      <div className="text-sm">Supporters: ({names.length}) – {names.slice(0,6).join(', ')}{names.length>6? ` +${names.length-6} more` : ''}{!names.length ? '—' : ''}</div>
+                    </div>
+                  );
+                })()}
+                <div className="mt-3 text-xs text-gray-500">Tie‑breaker: most supporters → earliest.</div>
+              </section>
+            )}
+          </div>
+        );
+      }
+
+      const root = ReactDOM.createRoot(document.getElementById('root'));
+      
+root.render(React.createElement(App));
+    </script>
+  </body>
 </html>
